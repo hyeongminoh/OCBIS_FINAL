@@ -4,6 +4,8 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from dotenv import load_dotenv
 import openai
 import logging
+import sys
+from logging.handlers import TimedRotatingFileHandler
 
 logging.basicConfig(level=logging.INFO)
 
@@ -12,6 +14,12 @@ load_dotenv()
 app = App(token=os.environ["SLACK_BOT_TOKEN"])
 openai.api_key = os.environ["OPENAI_API_KEY"]
 logger = logging.getLogger(__name__)
+
+LOG_DIR = "logs"
+os.makedirs(LOG_DIR, exist_ok=True)
+
+#콘솔 핸들러
+console_handler = logging.StreamHandler(sys.stdout)
 
 #질문과 답변 저장용
 qa_log = [] #추후 postgre
