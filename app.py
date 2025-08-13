@@ -76,19 +76,25 @@ def handle_message(body, say):
         if text.startswith("<@"): #봇 멘션은 패스
             return
 
-        client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+        #API에 질문 보내기
+        api_url = "http://10.250.37.64:8000/api/chat/v1/test"
         
-        #GPT에게 질문 보내기
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": text}
-            ]
-        )
-
-        answer = response.choices[0]["message"]["content"]
-        logger.info(f"🧠 GPT 응답: {answer}")
+        try:
+            response = requests.post(
+                api_url,
+                json={"question": text},
+                headers={"Content-Type": "application/json"},
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                answer = response.json().get("answer", "답변을 받지 못했습니다.")
+            else:
+                answer = f"API 오류: {response.status_code}"
+                
+        except requests.exceptions.RequestException as e:
+            logger.error(f"API 호출 오류: {e}")
+            answer = "API 서버에 연결할 수 없습니다."
 
         #로그저장
         qa_log.append({"user": user, "question": text, "answer": answer})
