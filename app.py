@@ -1,32 +1,21 @@
 import os
+import requests
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from dotenv import load_dotenv
-import openai
-import logging
-import sys
 
-logging.basicConfig(level=logging.INFO)
+from logger_setup import get_logger  # ← 분리한 로깅 모듈 사용
 
+# ---------- 초기화 ----------
 load_dotenv()
+logger = get_logger(__name__)
+logger.info("앱 시작 준비...")
 
 app = App(token=os.environ["SLACK_BOT_TOKEN"])
-openai.api_key = os.environ["OPENAI_API_KEY"]
-logger = logging.getLogger(__name__)
-
-
+#openai.api_key = os.environ["OPENAI_API_KEY"]
 
 #질문과 답변 저장용
 qa_log = [] #추후 postgre
-
-# 디버깅용 로거
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-@app.event("*")
-def debug_all_events(body, logger):
-    print("[DEBUG] 모든 이벤트 수신", body)
-    logger.info(body)
 
 ##기본 기능 - 태그 받으면 메세지 출력
 # @app.event("app_mention")
@@ -35,6 +24,7 @@ def debug_all_events(body, logger):
 #     print(f"[DEBUG] 사용자 입력: {user_text}")
 #     say("📣 불렀어요? 여깄어요! 🙋‍♀️")
 
+# ---------- 멘션 시 버튼 노출 ----------
 @app.event("app_mention")
 def handle_mention(body,say):
     user = body["event"]["user"]
@@ -59,59 +49,73 @@ def handle_mention(body,say):
         ]
     )
 
-# ✅ 버튼 클릭 시 응답
+# ---------- 버튼 클릭 → 질문 유도 ----------
 @app.action("ask_question")
 def handle_question_button(ack, body, say):
     ack()
     user = body["user"]["id"]
     say(f"<@{user}> 질문을 입력해주세요!")
  
-# 💬 사용자 메시지를 GPT로 보내기   
+# ---------- 일반 메시지 → 에이전트 API 호출 ----------
 @app.event("message")
 def handle_message(body, say):
     try:
         event = body["event"]
-        text = event.get("text", "")
+        text = (event.get("text") or "").strip()
         user = event.get("user", "")
 
-        logger.info(f"🔍 이벤트 수신: {text} from {user}")
-
-        if text.startswith("<@"): #봇 멘션은 패스
+        # 봇이 보낸 메시지/멘션 토큰 메시지는 무시
+        if event.get("bot_id") or text.startswith("<@"):
             return
 
-        #API에 질문 보내기
-        api_url = "http://10.250.37.64:8000/api/chat/v1/test"
-        
-        try:
-            response = requests.post(
-                api_url,
-                json={"question": text},
-                headers={"Content-Type": "application/json"},
-                timeout=30
+        logger.info(f"🔍 이벤트 수신: user={user}, text={text}")
+
+        # 에이전트 API 호출 준비
+        api_url = os.getenv("AGENT_URL", "http://10.250.37.64:8000/api/chat/v1/test")
+        payload = {
+            "message": text if text.startswith("[LLM call]") else f"[LLM call] {text}"
+        }
+        headers = {"Content-Type": "application/json"}
+
+        logger.info(f"📤 API 요청: {payload}")
+        resp = requests.post(api_url, json=payload, headers=headers, timeout=30)
+        logger.info(f"📥 API 응답코드: {resp.status_code}")
+
+        # 응답 파싱 (JSON/텍스트 둘 다 대응)
+        if resp.status_code == 200:
+            try:
+                data = resp.json()
+                answer = (
+                    data.get("answer")
+                    or data.get("result")
+                    or data.get("message")
+                    or str(data)
+                )
+            except ValueError:
+                answer = resp.text
+        else:
+            answer = f"API 오류: {resp.status_code} | {resp.text[:300]}"
+
+        # LangChain 재귀 오류 안내 보강
+        if "Recursion limit" in answer:
+            answer += (
+                "\n\n⚠️ 내부 에이전트가 반복 한도에 걸렸어요. "
+                "요청을 더 단순하게 하거나 ‘도구 사용 금지, 최종 답만’ 문구를 포함해 다시 시도해 주세요."
             )
-            
-            if response.status_code == 200:
-                answer = response.json().get("answer", "답변을 받지 못했습니다.")
-            else:
-                answer = f"API 오류: {response.status_code}"
-                
-        except requests.exceptions.RequestException as e:
-            logger.error(f"API 호출 오류: {e}")
-            answer = "API 서버에 연결할 수 없습니다."
 
-        #로그저장
+        logger.info(f"🤖 최종 답변: {answer[:300]}")
+
+        # 로그 저장 & 응답
         qa_log.append({"user": user, "question": text, "answer": answer})
-
-        #응답전송
         say(f"<@{user}> {answer}")
-        
+
     except Exception as e:
-        logger.error(f"❌ 오류 발생: {e}")
+        logger.exception("❌ 처리 중 예외")
         say("⚠️ 죄송해요. 답변 중 오류가 발생했어요.")
         
     
 
+# ---------- 실행 ----------
 if __name__ == "__main__":
     handler = SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"])
     handler.start()
-    print("봇이 시작되었습니다. Slack에서 메시지를 보내보세요!")  # 봇 시작 메시지

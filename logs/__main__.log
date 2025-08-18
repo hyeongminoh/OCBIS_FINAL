@@ -1,0 +1,4 @@
+2025-08-14 10:12:05 | __main__ | INFO | 앱 시작 준비...
+2025-08-14 10:12:12 | slack_bolt.App | INFO | A new session has been established (session id: 72d34a0f-35f6-48f4-b116-b3ba3267b27e)
+2025-08-14 10:12:12 | slack_bolt.App | INFO | Starting to receive messages from a new connection (session id: 72d34a0f-35f6-48f4-b116-b3ba3267b27e)
+2025-08-14 10:12:12 | slack_bolt.App | INFO | Bolt app is running!
