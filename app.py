@@ -28,8 +28,12 @@ qa_log = [] #추후 postgre
 @app.event("app_mention")
 def handle_mention(body,say):
     user = body["event"]["user"]
+    text = body["event"].get("text")
+    logger.info(f"[app_mention] user={user}, text={text}")  # 🔥 로그 추가
+
+
     say(
-        text=f"안녕하세요! <@{user}>님, 무엇을 도와드릴까요?",
+        text=f"안녕하세요! <@{user}>님, 무엇을 도와드릴까요???",
         blocks=[
             {
                 "type": "section",
@@ -54,21 +58,30 @@ def handle_mention(body,say):
 def handle_question_button(ack, body, say):
     ack()
     user = body["user"]["id"]
-    say(f"<@{user}> 질문을 입력해주세요!")
+    logger.info(f"[ask_question] user={user}, action triggered")  # 🔥 로그 추가
+    say(f"<@{user}> 질문을 입력해주세요!!")
  
 # ---------- 일반 메시지 → 에이전트 API 호출 ----------
 @app.event("message")
 def handle_message(body, say):
     try:
-        event = body["event"]
+        event = body.get("event", {})
         text = (event.get("text") or "").strip()
         user = event.get("user", "")
+        ch_type = event.get("channel_type")
+        subtype = event.get("subtype")
 
-        # 봇이 보낸 메시지/멘션 토큰 메시지는 무시
-        if event.get("bot_id") or text.startswith("<@"):
+        # 0) raw 로그로 먼저 확인
+        logger.info(f"[message] ch_type={ch_type} subtype={subtype} user={user} text={text}")
+
+        # 1) 봇이 보낸 메시지는 무시
+        if event.get("bot_id"):
             return
 
-        logger.info(f"🔍 이벤트 수신: user={user}, text={text}")
+        # 2) 편집/조인 등 시스템 메시지는 스킵
+        if subtype and subtype not in (None, "", "thread_broadcast"):
+            logger.info(f"skip subtype={subtype}")
+            return
 
         # 에이전트 API 호출 준비
         api_url = os.getenv("AGENT_URL", "http://10.250.37.64:8000/api/chat/v1/test")
